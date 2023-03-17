@@ -74,60 +74,126 @@ def server():
         print('Public key sha256: '+ hashlib.sha256(public_pem.encode()).hexdigest())
     with open("private.pem") as f:
         private_pem = f.read()
-    s = socket.socket()
-    s.bind((args.l, args.p))
-    s.listen(1)
-    conn, addr = s.accept()
-    print('connected:', addr)
-    conn.send(public_pem.encode())
-    key = decrypt_rsa(private_pem,conn.recv(4096))
-    def recv():
-        while True:
-            data = conn.recv(1024)
-            if not data: break
-            pc = AesCrypto(key, IV)
-            data = pc.decrypt(data)  # 解密数据
-            print("Received:"+data)
-    def send():
-        while True:
-            pc = AesCrypto(key, IV)
-            conn.send(pc.encrypt(input().encode()))
+    if args.u :
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.bind((args.l, args.p))
+        while True :
+            data,addr = s.recvfrom(1024)
+            if data == feature :
+                break
+        
+        s.sendto(public_pem.encode(),addr)
+        key,addr = s.recvfrom(4096)
+        key = decrypt_rsa(private_pem,key)
+        print('connected:', addr)
+        pc = AesCrypto(key, IV)
+        def recv():
+             while True:
+                data,addr = s.recvfrom(1024)
+                if not data: break
+                data = pc.decrypt(data)  # 解密数据
+                print("Received:"+data)
+        def send():
+            while True:
+                while True :
+                    body = input()
+                    if body != '' :
+                        break
+                    print('Input can not be empty!')
+                s.sendto(pc.encrypt(body.encode()),addr)
+                
+    else:
+        s = socket.socket()
+        s.bind((args.l, args.p))
+        s.listen(1)
+        conn, addr = s.accept()
+        print('connected:', addr)
+        conn.send(public_pem.encode())
+        key = decrypt_rsa(private_pem,conn.recv(4096))
+        pc = AesCrypto(key, IV)
+        def recv():
+            while True:
+                data = conn.recv(1024)
+                if not data: break
+                data = pc.decrypt(data)  # 解密数据
+                print("Received:"+data)
+        def send():
+            while True:
+                conn.send(pc.encrypt(input().encode()))
 
     Thread(target=recv).start()
     Thread(target=send).start()
 
 def client():
-    s = socket.socket()
-    s.connect((args.r, args.p))
-    data = s.recv(4096)
-    sha_list = []
-    sha256 = hashlib.sha256(data).hexdigest()
-    if os.path.isfile("config.txt") == True :
-        with open('config.txt', 'r') as f:
-            sha_list = eval(f.read())
-    if sha256 not in sha_list :
-        y = input('Public key sha256: ' + sha256 + '  y/n?\n')
-        if (y != 'Y' and y !='y') :
+    if args.u :
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        addr = (args.r,args.p)
+        s.sendto(feature,addr)
+        data,addr = s.recvfrom(4096)
+        sha_list = []
+        sha256 = hashlib.sha256(data).hexdigest()
+        if os.path.isfile("config.txt") == True :
+            with open('config.txt', 'r') as f:
+                sha_list = eval(f.read())
+        if sha256 not in sha_list :
+            y = input('Public key sha256: ' + sha256 + '  y/n?\n')
+            if (y != 'Y' and y !='y') :
+                exit(0)
+            print('Add public key sha256 to config.txt.')
+            sha_list.append(sha256)
+            with open('config.txt', 'w') as f:
+                f.write(str(sha_list))
+        print('Public key sha256: ' + sha256)
+        print('Connection succeeded!\n')
+        key = secrets.token_bytes(16)
+        s.sendto(encrypt_rsa(data,key),addr)
+        pc = AesCrypto(key, IV)
+        def recv():
+             while True:
+                data,addr = s.recvfrom(1024)
+                if not data: break
+                data = pc.decrypt(data)  # 解密数据
+                print("Received:"+data)
+        def send():
+            while True:
+                while True :
+                    body = input()
+                    if body != '' :
+                        break
+                    print('Input can not be empty!')
+                s.sendto(pc.encrypt(body.encode()),addr)
+    else :
+        s = socket.socket()
+        s.connect((args.r, args.p))
+        data = s.recv(4096)
+        sha_list = []
+        sha256 = hashlib.sha256(data).hexdigest()
+        if os.path.isfile("config.txt") == True :
+            with open('config.txt', 'r') as f:
+                sha_list = eval(f.read())
+        if sha256 not in sha_list :
+            y = input('Public key sha256: ' + sha256 + '  y/n?\n')
+            if (y != 'Y' and y !='y') :
+                exit(0)
+            print('Add public key sha256 to config.txt.')
+            sha_list.append(sha256)
+            with open('config.txt', 'w') as f:
+                f.write(str(sha_list))
+        print('Public key sha256: ' + sha256)
+        print('Connection succeeded!\n')
+        key = secrets.token_bytes(16)
+        s.send(encrypt_rsa(data,key))
+        pc = AesCrypto(key, IV)
+        def recv():
+            while True:
+                data = s.recv(1024)
+                if not data: break
+                data = pc.decrypt(data)  # 解密数据
+                print("Received:"+data)
             exit(0)
-        print('Add public key sha256 to config.txt.')
-        sha_list.append(sha256)
-        with open('config.txt', 'w') as f:
-            f.write(str(sha_list))
-    print('Connection succeeded!\n')
-    key = secrets.token_bytes(16)
-    s.send(encrypt_rsa(data,key))
-    def recv():
-        while True:
-            data = s.recv(1024)
-            if not data: break
-            pc = AesCrypto(key, IV)
-            data = pc.decrypt(data)  # 解密数据
-            print("Received:"+data)
-        exit(0)
-    def send():
-        while True:
-            pc = AesCrypto(key, IV)
-            s.send(pc.encrypt(input().encode()))
+        def send():
+            while True:
+                s.send(pc.encrypt(input().encode()))
 
     Thread(target=recv).start()
     Thread(target=send).start()
@@ -137,10 +203,12 @@ if __name__== "__main__" :
     parser = argparse.ArgumentParser()
     parser.add_argument('-r', type=str , help='rhost ip')
     parser.add_argument('-s', action='store_true',help='server')
+    parser.add_argument('-u', action='store_true',help='use udp')
     parser.add_argument('-l', type=str , default='0.0.0.0',help='listen ip')
     parser.add_argument('-p', type=int , default=10235, help='port')
     args = parser.parse_args()
     IV = b"GPk40oNBTGoXlW6r"
+    feature = b'GIF89av35Ip7NSlRImQ50X0mS9bYBhcFJGeprgguaGb6K6U7FQ00NKC6KJZqIflu8cFGTY'
     if args.s :
         server()
     else :
